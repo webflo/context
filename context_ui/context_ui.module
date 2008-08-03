@@ -19,9 +19,11 @@ function context_ui_init() {
  * Implementation of hook_theme().
  */
 function context_ui_theme() {
+  $items['context_ui_menu_links'] = array(
+    'arguments' => array('links' => NULL, 'attributes' => array('class' => 'links')),
+  );
   $items['context_ui_form'] = array(
     'arguments' => array('form' => array()),
-    /* 'file' => '', */
   );
   $items['context_ui_block_ui'] = array(
     'arguments' => array('form' => array()),
@@ -31,16 +33,12 @@ function context_ui_theme() {
     'arguments' => array('form' => array()),
     'file' => 'context_ui_admin.inc',
   );
-
   $items['context_devel'] = array(
     'arguments' => array('form' => array()),
-    /* 'file' => '', */
   );
   $items['context_devel_recurse'] = array(
     'arguments' => array('form' => array()),
-    /* 'file' => '', */
   );
-
   return $items;
 }
 
@@ -98,17 +96,21 @@ function context_ui_context_items() {
 
   // Menu
   if (module_exists('menu')) {
-    // $item = array('link_title' => '', 'mlid' => 0, 'plid' => 0, 'menu_name' => 'navigation', 'weight' => 0, 'link_path' => '', 'options' => array(), 'module' => 'menu', 'expanded' => 0, 'hidden' => 0, 'has_children' => 0);
-    // @note: NULL value seems to work here, but it is not documented that it should work
     $menus = menu_parent_options(array_reverse(menu_get_menus()), NULL);
-
-    // this is required because root menu names are displayed inside <> and will not de displayed otherwise
     foreach ($menus as $key => $name) {
-      if (substr($menus[$key], 0, 1) == '<') {
-        $menus[$key] = '<strong>'. check_plain($menus[$key]) .'</strong>';
+      $id = explode(':', $key);
+      // @TODO: choose a good convention for excluding root menus from
+      // being selectable items
+      if ($id[1] == '0') {
+        // this is required because root menu names are displayed inside <> and will not be displayed otherwise
+        $menus['_'. $key] = '<strong>'. check_plain($name) .'</strong>';
       }
+      else {
+        $link = menu_link_load($id[1]);
+        $menus[$link['path']] = $name;
+      }
+      unset($menus[$key]);
     }
-
     $items['menu'] = array(
       'title' => t('Menus'),
       'description' => t('Display the selected menu items as active when this context is set.'),
@@ -117,6 +119,7 @@ function context_ui_context_items() {
     );
   }
 
+  // User
   $items['user'] = array(
     'title' => t('User Pages'),
     'description' => t('Set this context when a user with selected role(s) is viewed'),
@@ -124,6 +127,7 @@ function context_ui_context_items() {
     'widget' => 'select',
   );
 
+  // Nodequeue
   if (module_exists('nodequeue')) {
     $result = db_query("SELECT qid, title FROM {nodequeue_queue}");
     $options = array();
@@ -907,11 +911,17 @@ function theme_context_devel_recurse($value) {
 }
 
 /**
- * Alters the menu to reflect any active contexts. Called from context_ui_set().
+ * The D6 menu system no longer permits the kind of hackish grafting of
+ * the menu tree that was possible in D5. While breadcrumb trails can
+ * still be altered, menu_navigation_links() determines the active
+ * trail of menu items through other (read: unalterable) means.
+ *
+ * To make use of the context_ui menu functionality, you must use
+ * either theme_context_ui_menu_links() or implement your own theme
+ * function/override that checks against the active paths.
  */
 function context_ui_menu_set_location($context) {
   // TODO update for Drupal 6
-  return;
   if ($context->cid) {
     $result = db_query("
       SELECT ci.id
@@ -919,60 +929,37 @@ function context_ui_menu_set_location($context) {
       WHERE ci.type = '%s' AND ci.cid = %d",
       'menu', $context->cid);
     if ($path = db_result($result)) {
-      // Load global menu -- unfortunately we may have to modify it manually
-      global $_menu;
-
-      // Get menu item for active context
-      $context_menu = menu_get_item(null, $path);
-      $items[] = $context_menu;      
-
-      // Grab the menu tree from active context item to the root
-      $mid = $context_menu['pid'];
-      while ($mid && ($item = menu_get_item($mid))) {
-        $items[] = $item;
-        $mid = $item['pid'];
-      }
-      $items = array_reverse($items);
-
-      // Graft the current active page on if it is different
-      $active_mid = menu_get_active_item();
-      if ($active_mid != $_menu['path index'][$path] && !$items[$active_mid]) {
-        $active_menu = menu_get_item($active_mid);        
-        // Due to a bug/feature? of menu_set_location() menu leaves that
-        // are part of the 'visible' portion of the menu tree short-circuit
-        // any further menu grafting. We check here, and make sure the leaf
-        // item is not a visible one.        
-        if (isset($_menu['visible'][$active_mid])) {      
-          unset($_menu['visible'][$active_mid]);
-        }
-
-        // If the active menu item is a local task we need to make sure
-        // to include it's parent.
-        if ($active_menu['type'] & MENU_IS_LOCAL_TASK) {
-          $parent_menu = menu_get_item($active_menu['pid']);
-          $items[] = $parent_menu;
-
-          // Allow for two levels of local tasks.
-          if ($parent_menu['type'] & MENU_IS_LOCAL_TASK) {
-            $items[] = menu_get_item($parent_menu['pid']);
-          }
-        }
-        if ($active_menu['type'] & MENU_DEFAULT_LOCAL_TASK) {
-          $real_q = end($items);
-          $real_q = $real_q['path'];
-        }
-        $items[] = $active_menu;
-      }
-
-      // Push the new location path through
-      menu_set_location($items);
-
-      // Repair query string
-      if ($real_q) {
-        $_GET['q'] = $real_q;
-      }
+      $active_paths = context_get('context_ui', 'active_paths');
+      $active_paths = $active_paths ? $active_paths : array();
+      $active_paths[] = $path;
+      context_set('context_ui', 'active_paths', $active_paths);
     }
   }
+}
+
+/**
+ * Theme function for enabling context based active classes on menu
+ * items. This is a simple wrapper around theme_links() that adds a
+ * simple check against active contexts before passing actual markup
+ * duties onto theme_links() or its overrides.
+ */
+function theme_context_ui_menu_links($links, $attributes = array('class' => 'links')) {
+  // Retrieve active paths set by context_ui
+  $active_paths = context_get('context_ui', 'active_paths');
+  $active_paths = $active_paths ? $active_paths : array();
+
+  $modified_links = array();
+  foreach ($links as $key => $link) {
+    // Add active class to both links and key if path is active
+    if (in_array($link['href'], $active_paths)) {
+      $key .= ' active';
+      $link['attributes']['class'] .= ' active';
+    }
+    $modified_links[$key] = $link;
+  }
+
+  // Pass modified links onto theme_links() for actual theming duties
+  return theme('links', $modified_links, $attributes);
 }
 
 /**
