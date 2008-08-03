@@ -776,23 +776,6 @@ function context_ui_form_submit($form, &$form_state) {
 }
 
 /**
- * Helper function to generate a list of database and module provided views.
- */
-function _context_ui_get_views() {
-  $enabled_views = array();
-  
-  $views = views_get_all_views();
-  
-  foreach ($views as $view) {
-    if (!isset($views[$view->name]->disabled) || !$views[$view->name]->disabled) {
-      $enabled_views[$view->name] = $view->name;
-    }
-  }
-  ksort($enabled_views);
-  return $enabled_views;
-}
-
-/**
  * Helper function to generate a list of blocks from a specified region. If provided a context object,
  * will generate a full list of blocks for that region distinguishing between system blocks and
  * context-provided blocks.
