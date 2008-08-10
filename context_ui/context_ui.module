@@ -278,14 +278,14 @@ function context_ui_form_alter(&$form, $form_state, $form_id) {
     $module = $form['module']['#value'];
     $delta = $form['delta']['#value'];
 
-    $result = db_query("SELECT cb.cid, cb.region, c.space, c.ckey, c.value FROM {context_ui_block} cb JOIN {context_ui} c ON cb.cid = c.cid WHERE cb.module = '%s' AND cb.delta = '%s' AND c.status = %d", $module, $delta, 1);
+    $result = db_query("SELECT cb.cid, cb.region, c.namespace, c.attribute, c.value FROM {context_ui_block} cb JOIN {context_ui} c ON cb.cid = c.cid WHERE cb.module = '%s' AND cb.delta = '%s' AND c.status = %d", $module, $delta, 1);
 
     $rows = array();
     while ($row = db_fetch_object($result)) {
-      $rows[] = array($row->space, $row->ckey, $row->value, $row->region, l(t('Edit visibility'), 'admin/build/context/edit/'. $row->cid, array('fragment' => 'context-ui-blocks')));
+      $rows[] = array($row->namespace, $row->attribute, $row->value, $row->region, l(t('Edit visibility'), 'admin/build/context/edit/'. $row->cid, array('fragment' => 'context-ui-blocks')));
     }
     if ($rows) {
-      $content = theme('table', array(t('Space'), t('Key'), t('Value'), t('Region'), ''), $rows);
+      $content = theme('table', array(t('Namespace'), t('Attribute'), t('Value'), t('Region'), ''), $rows);
     }
     else {
       $content = "<p>". t('No visibility rules have been set for this block using context_ui.') ."</p>";
@@ -325,22 +325,23 @@ function context_ui_user($op, &$edit, &$account, $category = NULL) {
  * @return
  *   An array of context objects.
  */
-function context_ui_defaults($space = null) {
-  static $contexts, $spaces;
+function context_ui_defaults($namespace = null) {
+  static $contexts, $namespaces;
   if (!$contexts) {
     $contexts = array();
     foreach (module_implements('context_define') as $module) {
       $function = $module .'_context_define';
       $contexts = array_merge($contexts, $function());
     }
-    foreach ($contexts as &$context) {
+    foreach ($contexts as $key => $context) {
       $context = (object) $context;
-      $spaces[$context->space][] = $context;
+      $contexts[$key] = $context;
+      $namespaces[$context->namespace][] = $context;
     }
   }
-  if ($space) {
-    if (isset($spaces[$space])) {
-      return $spaces[$space];
+  if ($namespace) {
+    if (isset($namespaces[$namespace])) {
+      return $namespaces[$namespace];
     }
     else {
       return array();
@@ -372,7 +373,7 @@ function context_ui_types($op = 'list') {
 }
 
 /**
- * Sets a space-key-value context that has been associated with the provided item.
+ * Sets a namespace-attribute-value context that has been associated with the provided item.
  *
  * @param $type
  *   The item type to be matched. Any of the currently supported context items types ("view",
@@ -383,21 +384,20 @@ function context_ui_types($op = 'list') {
  * @return
  *   True if one or more contexts were set. False if no items/contexts matched.
  */
- function context_ui_set($type, $id) {
+function context_ui_set($type, $id) {
   if (!is_array($id)) {
     $id = array($id);
   }
   $set = false;
   $result = db_query("
-    SELECT c.space, c.ckey, c.value, c.cid FROM {context_ui_item} ci
+    SELECT c.namespace, c.attribute, c.value, c.cid FROM {context_ui_item} ci
     JOIN {context_ui} c ON ci.cid = c.cid
     WHERE ci.type = '%s' AND ci.id IN (". substr(str_repeat("'%s',", count($id)), 0, -1) .") AND c.status = 1",
     array_merge(array($type), $id));
-    
   while ($context = db_fetch_object($result)) {
     // If this context already has a value, don't alter it.
-    if (!context_exists($context->space, $context->ckey)) {
-      context_set($context->space, $context->ckey, $context->value);
+    if (!context_isset($context->namespace, $context->attribute)) {
+      context_set($context->namespace, $context->attribute, $context->value);
 
       // Allow getters to respond to the set context
       $context = context_ui_context('load', $context);
@@ -477,7 +477,6 @@ function theme_context_devel_recurse($value) {
  * function/override that checks against the active paths.
  */
 function context_ui_menu_set_location($context) {
-  // TODO update for Drupal 6
   if ($context->cid) {
     $result = db_query("
       SELECT ci.id
@@ -520,11 +519,10 @@ function theme_context_ui_menu_links($links, $attributes = array('class' => 'lin
 
 /**
  * In order to add blocks we need to intercept theme_blocks and build the block
- * content using an diffrent process. The current implementation assumes that 
- * the theme layer isn't going to define either 'phptemplate_blocks' or 
+ * content using an diffrent process. The current implementation assumes that
+ * the theme layer isn't going to define either 'phptemplate_blocks' or
  * 'themename_blocks'.
  */
-
 function phptemplate_blocks($region) {
   $output = "";
   if ($list = context_ui_block_list($region)) {
@@ -536,7 +534,6 @@ function phptemplate_blocks($region) {
   $output .= drupal_get_content($region);
   return $output;
 }
-
 
 /**
  * An alternative version of block_list() that provides any context_ui enabled blocks.
@@ -552,7 +549,7 @@ function context_ui_block_list($region) {
     // formerly an API function -- TODO: evaluate whether this may be useful otherwise
     $result = db_query("SELECT * FROM {context_ui} WHERE status = 1", 'context_ui');
     while ($context = db_fetch_object($result)) {
-      if (context_get($context->space, $context->ckey) == $context->value) {
+      if (context_get($context->namespace, $context->attribute) == $context->value) {
         $cids[$context->cid] = $context->cid;
       }
     }
@@ -620,8 +617,9 @@ function context_ui_block_list($region) {
       }
     }
     // Custom sort since SQL order by won't give it to us for free
-    foreach ($blocks as &$region_blocks) {
+    foreach ($blocks as $region => $region_blocks) {
       uasort($region_blocks, '_context_ui_block_compare');
+      $blocks[$region] = $region_blocks;
     }
   }
   // Create an empty array if there were no entries
@@ -674,7 +672,7 @@ function _context_ui_block_visibility($op, $block) {
   }
 }
 
-/*
+/**
  * Helper function to sort block objects by weight
  */
 function _context_ui_block_compare($a, $b) {
@@ -682,7 +680,7 @@ function _context_ui_block_compare($a, $b) {
   return ($a->weight - $b->weight);
 }
 
-/*
+/**
  * Provides simple operations (load/insert/update/etc.) on a core context space/key/value definition.
  *
  * @param $op
@@ -696,10 +694,7 @@ function _context_ui_block_compare($a, $b) {
 function context_ui_context($op, $context) {
   switch ($op) {
     case 'load':
-      static $cache;
-      if (!$cache) {
-        $cache = array();
-      }
+      static $cache = array();
       // Argument is a cid
       if (is_numeric($context)) {
         if (!isset($cache[$context])) {
@@ -718,11 +713,11 @@ function context_ui_context($op, $context) {
           return $cache[$context->cid];
         }
       }
-      // Context object has no cid -- we'll try to load by s/k/v
-      else if (is_object($context) && $context->space && $context->ckey && $context->value) {
+      // Context object has no cid -- we'll try to load by ns/attr/val
+      else if (is_object($context) && $context->namespace && $context->attribute && $context->value) {
         $args = array(
-          $context->space,
-          $context->ckey,
+          $context->namespace,
+          $context->attribute,
           $context->value,
         );
         $system = '';
@@ -735,7 +730,7 @@ function context_ui_context($op, $context) {
           $args[] = $context->status;
           $status = "AND status = %d";
         }
-        $context = db_fetch_object(db_query("SELECT * FROM {context_ui} WHERE space = '%s' AND ckey = '%s' AND value = '%s' $system $status", $args));
+        $context = db_fetch_object(db_query("SELECT * FROM {context_ui} WHERE namespace = '%s' AND attribute = '%s' AND value = '%s' $system $status", $args));
       }
       if ($context) {
         $context = context_ui_item('load', $context);
@@ -752,8 +747,8 @@ function context_ui_context($op, $context) {
         $values = array(
           'system' => $context->system,
           'status' => $context->status,
-          'space' => $context->space,
-          'ckey' => $context->ckey,
+          'namespace' => $context->namespace,
+          'attribute' => $context->attribute,
           'value' => $context->value,
         );
         $keys = implode(', ', array_keys($values));
@@ -772,13 +767,13 @@ function context_ui_context($op, $context) {
         $values = array(
           'system' => $context->system,
           'status' => $context->status,
-          'space' => $context->space,
-          'ckey' => $context->ckey,
+          'namespace' => $context->namespace,
+          'attribute' => $context->attribute,
           'value' => $context->value,
           'cid'   => $context->cid,
         );
         $keys = implode(', ', array_keys($values));
-        $result = db_query("UPDATE {context_ui} SET system = %d, status = %d, space = '%s', ckey = '%s', value = '%s'WHERE cid = %d", $values);
+        $result = db_query("UPDATE {context_ui} SET system = %d, status = %d, namespace = '%s', attribute = '%s', value = '%s'WHERE cid = %d", $values);
         $result = $result && context_ui_item('save', $context);
         $result = $result && context_ui_item_block('save', $context);
         return $result ? true : false;
@@ -795,7 +790,7 @@ function context_ui_context($op, $context) {
   }
 }
 
-/*
+/**
  * Provides simple operations (load/save) on any context-item associations. context_ui_item() will
  * automatically sync the database with the context object provided when saving. Any associations
  * that exist on the object that are absent from the database will be inserted, and any associations
@@ -861,7 +856,7 @@ function context_ui_item($op = 'load', $context) {
   return false;
 }
 
-/*
+/**
  * Provides simple operations (load/save) on any context-block associations. Parallel usage as
  * context_ui_item().
  *
@@ -949,7 +944,7 @@ function _context_ui_node_links($resest = false) {
       foreach ($cids as $cid) {
         $context = context_ui_context('load', $cid);
         if (is_array($context->node)) {
-          foreach ($context->node as $type) {      
+          foreach ($context->node as $type) {
             if (isset($types[$type]) && node_access('create', $type)) {
               $links[$type] = array(
                 'title' => $types[$type]->name,

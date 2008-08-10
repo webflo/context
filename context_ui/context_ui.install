@@ -43,14 +43,14 @@ function context_ui_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
-      'space' => array(
+      'namespace' => array(
         'description' => t('?'),
         'type' => 'varchar',
         'length' => 64,
         'not null' => TRUE,
         'default' => '',
       ),
-      'ckey' => array(
+      'attribute' => array(
         'description' => t('?'),
         'type' => 'varchar',
         'length' => 64,
@@ -66,7 +66,7 @@ function context_ui_schema() {
       ),
     ),
     'unique keys' => array(
-      'key1' => array('system', 'space', 'ckey', 'value'),
+      'key1' => array('system', 'namespace', 'attribute', 'value'),
     ),
     'primary key' => array('cid'),
   );
@@ -155,9 +155,8 @@ function context_ui_update_1() {
   switch ($GLOBALS['db_type']) {
     case 'mysql':
     case 'mysqli':
-      $ret[] = update_sql("ALTER TABLE {context_ui} MODIFY COLUMN space VARCHAR(64) NOT NULL");
-      $ret[] = update_sql("ALTER TABLE {context_ui} MODIFY COLUMN `key` VARCHAR(64) NOT NULL");
-      $ret[] = update_sql("ALTER TABLE {context_ui} MODIFY COLUMN value VARCHAR(64) NOT NULL");
+      $ret[] = update_sql("ALTER TABLE {context_ui} CHANGE COLUMN space namespace VARCHAR(64) NOT NULL");
+      $ret[] = update_sql("ALTER TABLE {context_ui} CHANGE COLUMN ckey attribute VARCHAR(64) NOT NULL");
       break;
   }
   return $ret;

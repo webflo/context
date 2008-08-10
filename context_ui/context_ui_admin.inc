@@ -4,6 +4,7 @@
  * Page callback for context_ui admin landing page.
  */
 function context_ui_admin() {
+  // Add css
   drupal_add_css(drupal_get_path("module", "context_ui") ."/context_ui.css");
 
   // rebuild blocks
@@ -82,10 +83,14 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
   }
 
   // Core context definition
-  $form['#theme'] = 'context_ui_form';
+  $form = array(
+		'#base' => 'context_ui_form',
+		'#theme' => 'context_ui_form',
+	);
+
   $form['value'] =
-  $form['ckey'] =
-  $form['space'] = array(
+  $form['attribute'] =
+  $form['namespace'] = array(
     '#type' => 'textfield',
     '#required' => true,
     '#maxlength' => 64,
@@ -93,15 +98,15 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
   );
 
   $form['value']['#title'] = t('Value');
-  $form['value']['#description'] =  t('A system name for this context. May only contain lowercase letters, underscores, and numbers. Example: <b>science_blog</b>');
+  $form['value']['#description'] = t('A system name for this context. May only contain lowercase letters, underscores, and numbers. Example: <b>science_blog</b>');
 
-  $form['ckey']['#title'] = t('Key');
-  $form['ckey']['#default_value'] = 'section';
-  $form['ckey']['#description'] = t('The type of context information provided in this namespace. Example: <b>section</b>');
+  $form['attribute']['#title'] = t('Attribute');
+  $form['attribute']['#default_value'] = 'section';
+  $form['attribute']['#description'] = t('The type of context information provided in this namespace. Example: <b>section</b>');
 
-  $form['space']['#title'] = t('Namespace');
-  $form['space']['#default_value'] = 'context_ui';
-  $form['space']['#description'] = t('The namespace for this context definition. Example: <b>context_ui</b>');
+  $form['namespace']['#title'] = t('Namespace');
+  $form['namespace']['#default_value'] = 'context_ui';
+  $form['namespace']['#description'] = t('The namespace for this context definition. Example: <b>context_ui</b>');
 
   $form['items'] = array(
     '#tree' => true,
@@ -209,8 +214,8 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
   if ($op == 'view' || $op == 'edit' || ($op == 'add' && $context)) {
     if ($context) {
       $form['value']['#default_value'] = $context->value;
-      $form['ckey']['#default_value'] = $context->ckey;
-      $form['space']['#default_value'] = $context->space;
+      $form['attribute']['#default_value'] = $context->attribute;
+      $form['namespace']['#default_value'] = $context->namespace;
       $form['cid'] = array(
         '#type' => 'value',
         '#value' => $cid,
@@ -221,8 +226,8 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
       );
       if ($op == 'view' || $context->system) {
         $form['value']['#disabled'] =
-        $form['ckey']['#disabled'] =
-        $form['space']['#disabled'] =
+        $form['attribute']['#disabled'] =
+        $form['namespace']['#disabled'] =
         $form['block']['selector']['blocks']['#disabled'] =
         $form['block']['selector']['regions']['#disabled'] = true;
       }
@@ -273,14 +278,14 @@ function theme_context_ui_form($form) {
   $output = '';
 
   // Render space / key / value trio in a 3-column table
-  $header = array(t('Namespace'), t('Key'), t('Value'));
-  unset($form['space']['#title']);
-  unset($form['ckey']['#title']);
+  $header = array(t('Namespace'), t('Attribute'), t('Value'));
+  unset($form['namespace']['#title']);
+  unset($form['attribute']['#title']);
   unset($form['value']['#title']);
   $rows = array(
     array(
-      drupal_render($form['space']),
-      drupal_render($form['ckey']),
+      drupal_render($form['namespace']),
+      drupal_render($form['attribute']),
       drupal_render($form['value']),
     ),
   );
@@ -466,7 +471,7 @@ function context_ui_export(&$form_state, $cid = NULL) {
   }
 }
 
-/*
+/**
  * Generates an array tree representation of available space/key/value context definitions.
  */
 function context_ui_tree($op = '') {
@@ -479,10 +484,10 @@ function context_ui_tree($op = '') {
     $result = db_query("
       SELECT *
       FROM {context_ui}
-      ORDER BY system ASC, space ASC, ckey ASC, value ASC");
+      ORDER BY system ASC, namespace ASC, attribute ASC, value ASC");
     while ($context = db_fetch_object($result)) {
       $branch = $context->system ? 'system' : 'ui';
-      $tree[$branch][$context->space][$context->ckey][$context->value] = $context;
+      $tree[$branch][$context->namespace][$context->attribute][$context->value] = $context;
     }
   }
   switch ($op) {
@@ -514,20 +519,27 @@ function context_ui_rebuild() {
 
   // Insert or update system contexts
   foreach ($default_contexts as $c) {
-    // flag this context's type + status
-    $c->system = 1;
-    $c->status = isset($ui[$c->space][$c->ckey][$c->value]) ? 0 : 1;
+    // Check that the context definition is reasonable
+    if (!empty($c->namespace) && !empty($c->attribute)) {
+      // Check that the providing module has not explicitly set system + status
+      // If it has, we trust that the module knows what it is doing. Otherwise,
+      // flag this context's type + status.
+      if (!isset($c->system) && !isset($c->status)) {
+        $c->system = 1;
+        $c->status = isset($ui[$c->namespace][$c->attribute][$c->value]) ? 0 : 1;
+      }
 
-    if ($context = context_ui_context('load', $c)) {
-      $c->cid = $context->cid;
-      context_ui_context('update', $c);
-      unset($system[$c->cid]); // remove this context from unused list
-    }
-    else {
-      context_ui_context('insert', $c);
+      if ($context = context_ui_context('load', $c)) {
+        $c->cid = $context->cid;
+        context_ui_context('update', $c);
+        unset($system[$c->cid]); // remove this context from unused list
+      }
+      else {
+        context_ui_context('insert', $c);
+      }
     }
   }
-
+  
   // Remove any unused contexts
   foreach ($system as $c => $dummy) {
     context_ui_context('delete', $c);
@@ -538,15 +550,15 @@ function context_ui_rebuild() {
  * Generates the main context_ui admin page with a tiered context listing.
  */
 function theme_context_ui_admin($context_tree) {
-  foreach ($context_tree as $space => $keys) {
+  foreach ($context_tree as $namespace => $attributes) {
     $rows[] = array(
-      "<span class='context-space'>". $space ."</span>",
+      "<span class='context-namespace'>". $namespace ."</span>",
       null
     );
-    foreach ($keys as $key => $contexts) {
+    foreach ($attributes as $attribute => $contexts) {
       if (is_array($contexts)) {
         $rows[] = array(
-          "<span class='context-key'>". $key ."</span>",
+          "<span class='context-attribute'>". $attribute ."</span>",
           null
         );
         foreach ($contexts as $value => $context) {
@@ -662,16 +674,16 @@ function theme_context_ui_block_ui($regions, $context = null) {
 function context_ui_form_validate($form, &$form_state) {
   if ($form_state['clicked_button']['#id'] == 'edit-submit' && $form_state['values']['value']) {
     // Check for string identifier sanity
-    foreach (array('value', 'ckey', 'space') as $elem) {
+    foreach (array('value', 'attribute', 'namespace') as $elem) {
       if (!preg_match('!^[a-z0-9_]+$!', $form_state['values'][$elem])) {
         form_set_error($elem, t('The context !elem can only consist of lowercase letters, underscores, and numbers.', array('!elem' => $elem)));
       }
     }
     if (!isset($form_state['values']['cid'])) {
       // Check that no other user-defined context definition has taken this identifier already
-      $context = new stdClass();
-      $context->space = $form_state['values']['space'];
-      $context->ckey = $form_state['values']['ckey'];
+      $context = new StdClass();
+      $context->namespace = $form_state['values']['namespace'];
+      $context->attribute = $form_state['values']['attribute'];
       $context->value = $form_state['values']['value'];
       $context->system = 0;
       if ($exists = context_ui_context('load', $context)) {
@@ -692,12 +704,12 @@ function context_ui_form_validate($form, &$form_state) {
  */
 function context_ui_form_process($form) {
   $context = new stdClass();
-
-  // Context space/key/value definition
-  $context->cid = isset($form['cid']) ? $form['cid'] : null;
-  $context->system = isset($form['system']) ? $form['system'] : null;
-  $context->space = $form['space'] ? $form['space'] : null;
-  $context->ckey = $form['ckey'] ? $form['ckey'] : null;
+  
+  // Context ns/attr/value definition
+  $context->cid = $form['cid'] ? $form['cid'] : null;
+  $context->system = $form['system'] ? $form['system'] : null;
+  $context->namespace = $form['namespace'] ? $form['namespace'] : null;
+  $context->attribute = $form['attribute'] ? $form['attribute'] : null;
   $context->value = $form['value'] ? $form['value'] : null;
   $context->status = 1; // all user defined contexts have status 1
 
@@ -711,7 +723,7 @@ function context_ui_form_process($form) {
         }
       }
     }
-    else if (isset($form['items'][$element_id])) {
+    else if (isset($form['items'][$element_id]) && !empty($form['items'][$element_id])) {
       $context->{$element_id}[] = $form['items'][$element_id];
     }
   }
@@ -848,9 +860,10 @@ function _context_ui_get_blocks($region = null, $context = null) {
     }
   }
 
-  foreach ($blocks as $r => &$sort_region) {
+  foreach ($blocks as $r => $sort_region) {
     if ($r !== 0) {
       uasort($sort_region, "_context_ui_block_compare");
+      $blocks[$r] = $sort_region;
     }
   }
 
