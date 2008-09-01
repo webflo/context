@@ -564,7 +564,6 @@ function context_ui_block_list($region) {
       ORDER BY b.region, b.weight, b.module", 'b', 'bid'),
       array_merge(array($theme_key), $rids)
     );
-
     while ($block = db_fetch_object($result)) {
       // we determine status as a combination of DB setting + context definition
       $status = FALSE;
