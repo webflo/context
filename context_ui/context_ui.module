@@ -204,6 +204,14 @@ function context_ui_menu() {
     'type' => MENU_CALLBACK,
     'file' => 'context_ui_admin.inc',
   );
+  $items['admin/build/context/clone'] = array(
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('context_ui_form', 'clone'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_CALLBACK,
+    'file' => 'context_ui_admin.inc',
+  );
   $items['admin/build/context/view'] = array(
     'page callback' => 'drupal_get_form',
     'page arguments' => array('context_ui_form', 'view'),
@@ -705,7 +713,7 @@ function context_ui_context($op, $context) {
       }
       // Context object has an associated cid
       else if (is_object($context) && isset($context->cid)) {
-        if (!$cache[$context->cid]) {
+        if (!isset($cache[$context->cid])) {
           $context = db_fetch_object(db_query("SELECT * FROM {context_ui} WHERE cid = %d", $context->cid));
         }
         else {
@@ -723,9 +731,9 @@ function context_ui_context($op, $context) {
         $status = '';
         if (isset($context->system)) {
           $args[] = $context->system;
-          $system = "AND system = '%s'";
+          $system = "AND system = %d";
         }
-        if (isset($context->status)) {
+        if (isset($context->status) && $context->status != 0) {
           $args[] = $context->status;
           $status = "AND status = %d";
         }

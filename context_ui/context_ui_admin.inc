@@ -80,13 +80,24 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
         }
       }
       break;
+    case 'clone':
+      if (is_numeric($cid) && $context = context_ui_context('load', $cid)) {
+        drupal_set_title(t('Clone context: %title', array('%title' => $context->value)));
+        $context->system = 0;
+        $context->cid = null;
+        $cid = null;
+      }
+      else {
+        drupal_goto('admin/build/context'); return;
+      }
+      break;
   }
 
   // Core context definition
   $form = array(
-		'#base' => 'context_ui_form',
-		'#theme' => 'context_ui_form',
-	);
+    '#base' => 'context_ui_form',
+    '#theme' => 'context_ui_form',
+  );
 
   $form['value'] =
   $form['attribute'] =
@@ -211,7 +222,7 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
     );
   }
 
-  if ($op == 'view' || $op == 'edit' || ($op == 'add' && $context)) {
+  if ($op == 'view' || $op == 'edit' || $op == 'clone' || ($op == 'add' && $context)) {
     if ($context) {
       $form['value']['#default_value'] = $context->value;
       $form['attribute']['#default_value'] = $context->attribute;
@@ -233,7 +244,7 @@ function context_ui_form(&$form_state, $op, $cid = NULL, $context = NULL) {
       }
       // Set default values for each item type (except blocks)
       foreach (context_ui_types('full') as $type => $item) {
-        if (is_array($context->{$type})) {
+        if (isset($context->{$type}) && is_array($context->{$type})) {
           if ($item['#type'] == 'checkboxes' || ($item['#type'] == 'select' && $item['#multiple'] == true)) {
             $defaults = array();
             foreach ($context->{$type} as $id) {
@@ -521,6 +532,8 @@ function context_ui_rebuild() {
   foreach ($default_contexts as $c) {
     // Check that the context definition is reasonable
     if (!empty($c->namespace) && !empty($c->attribute)) {
+      $context = context_ui_context('load', $c);
+      
       // Check that the providing module has not explicitly set system + status
       // If it has, we trust that the module knows what it is doing. Otherwise,
       // flag this context's type + status.
@@ -529,7 +542,7 @@ function context_ui_rebuild() {
         $c->status = isset($ui[$c->namespace][$c->attribute][$c->value]) ? 0 : 1;
       }
 
-      if ($context = context_ui_context('load', $c)) {
+      if ($context) {
         $c->cid = $context->cid;
         context_ui_context('update', $c);
         unset($system[$c->cid]); // remove this context from unused list
@@ -566,10 +579,12 @@ function theme_context_ui_admin($context_tree) {
           $class = '';
           if ($context->system) {
             $links[] = l(t('View'), "admin/build/context/view/$context->cid");
+            $links[] = l(t('Override'), 'admin/build/context/clone/'. $context->cid);
           }
           else {
             $links[] = l(t('Edit'), 'admin/build/context/edit/'. $context->cid);
             $links[] = l(t('Export'), "admin/build/context/export/$context->cid");
+            $links[] = l(t('Clone'), 'admin/build/context/clone/'. $context->cid);
             $links[] = l(t('Delete'), 'admin/build/context/delete/'. $context->cid);
           }
           if (!$context->status) {
@@ -706,11 +721,11 @@ function context_ui_form_process($form) {
   $context = new stdClass();
   
   // Context ns/attr/value definition
-  $context->cid = $form['cid'] ? $form['cid'] : null;
-  $context->system = $form['system'] ? $form['system'] : null;
-  $context->namespace = $form['namespace'] ? $form['namespace'] : null;
-  $context->attribute = $form['attribute'] ? $form['attribute'] : null;
-  $context->value = $form['value'] ? $form['value'] : null;
+  $context->cid = isset($form['cid']) ? $form['cid'] : null;
+  $context->system = isset($form['system']) ? $form['system'] : null;
+  $context->namespace = isset($form['namespace']) ? $form['namespace'] : null;
+  $context->attribute = isset($form['attribute']) ? $form['attribute'] : null;
+  $context->value = isset($form['value']) ? $form['value'] : null;
   $context->status = 1; // all user defined contexts have status 1
 
   // Values for most item types

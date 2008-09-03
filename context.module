@@ -33,12 +33,14 @@ function context_context($op = CONTEXT_GET, $namespace = null, $attribute = null
         return $context;
       }
       // return entire space if set
-      else if (!$attribute && isset($context[(string) $namespace])) {
-        return $context[(string) $namespace];
-      }
-      // return val of key from space
-      else if (is_array($context[(string) $namespace]) && isset($context[(string) $namespace][(string) $attribute])) {
-        return $context[(string) $namespace][(string) $attribute];
+      else if (isset($context[(string) $namespace])) {
+        // return val of key from space
+        if (is_array($context[(string) $namespace]) && isset($context[(string) $namespace][(string) $attribute])) {
+          return $context[(string) $namespace][(string) $attribute];
+        }
+        elseif (!$attribute){
+          return $context[(string) $namespace];
+        }
       }
       break;
     case CONTEXT_SET:
