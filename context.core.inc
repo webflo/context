@@ -170,6 +170,11 @@ function context_node_condition(&$node, $op) {
       $plugin->execute($node, $op);
     }
   }
+  if (module_exists('content')) {
+    if ($plugin = context_get_plugin('condition', 'content')) {
+      $plugin->execute($node, $op);
+    }
+  }
   if (module_exists('book')) {
     if ($plugin = context_get_plugin('condition', 'book')) {
       $plugin->execute($node, $op);

@@ -62,6 +62,13 @@ function _context_context_registry() {
       'plugin' => 'context_condition_bookroot',
     );
   }
+  if (module_exists('content')) {
+    $registry['conditions']['content'] = array(
+      'title' => t('Content'),
+      'description' => t('Set this context when viewing a node with the selected content.'),
+      'plugin' => 'context_condition_content',
+    );
+  }
   if (module_exists('locale')) {
     $registry['conditions']['language'] = array(
       'title' => t('Language'),
@@ -201,6 +208,16 @@ function _context_context_plugins() {
         'path' => drupal_get_path('module', 'context') .'/plugins',
         'file' => 'context_condition_language.inc',
         'class' => 'context_condition_language',
+        'parent' => 'context_condition',
+      ),
+    );
+  }
+  if (module_exists('content')) {
+    $plugins['context_condition_content'] = array(
+      'handler' => array(
+        'path' => drupal_get_path('module', 'context') .'/plugins',
+        'file' => 'context_condition_content.inc',
+        'class' => 'context_condition_content',
         'parent' => 'context_condition',
       ),
     );
